@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.env
+*.env
+
+# Docker files
+*.log
+docker-compose.override.yml
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.iml
+
+# Python dependencies
+*.egg-info/
+pip-log.txt
+
+# Kafka & Zookeeper Data
+kafka_data/
+zookeeper_data/

@@ -1,21 +1,26 @@
+version: "3.8"
 
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
+    restart: always
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]  # Check if Zookeeper is listening on port 2181
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 10s
       timeout: 5s
       retries: 20
     mem_limit: 512m
     networks:
       - backend_network
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper
 
   kafka:
     image: confluentinc/cp-kafka:latest
+    restart: always
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -28,22 +33,25 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     healthcheck:
-      test: ["CMD", "kafka-topics", "--list", "--bootstrap-server", "kafka:9092"]
+      test: ["CMD", "kafka-topics", "--list", "--bootstrap-server", "localhost:9092"]
       interval: 10s
       timeout: 5s
       retries: 10
     mem_limit: 1g
     networks:
       - backend_network
+    volumes:
+      - kafka_data:/var/lib/kafka
 
   fastapi:
     build: .
+    restart: always
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-    environment:
-      KAFKA_BROKER: kafka:9092
+    env_file:
+      - .env
     depends_on:
       kafka:
         condition: service_healthy
@@ -53,3 +61,7 @@ services:
 networks:
   backend_network:
     driver: bridge
+
+volumes:
+  zookeeper_data:
+  kafka_data:

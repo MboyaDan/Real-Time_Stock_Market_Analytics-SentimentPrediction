@@ -1,18 +1,29 @@
-# Use an official Python image as the base
-FROM python:3.10
+# Use a smaller, optimized Python image
+FROM python:3.10-slim
 
-# Set the working directory
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy the project files
+# Copy only the requirements file for better caching
+COPY requirements.txt .
+
+# Install system dependencies (needed for some Python packages)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application files
 COPY . .
 
-# Install dependencies
-RUN pip install --upgrade pip
-RUN pip install fastapi uvicorn kafka-python pyspark google-cloud-bigquery transformers
+# Ensure the .env file is included (if not ignored)
+COPY .env .env
 
-# Expose the FastAPI porthttps://duckduckgo.com/?q=Yahoo+finance+API&t=newext&atb=v468-5__&ia=web
+# Expose FastAPI's default port
 EXPOSE 8000
 
-# Start the FastAPI server
+# Run FastAPI with Uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
