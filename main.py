@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query
 from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+from kafka.errors import KafkaError, NoBrokersAvailable
 import requests
 import json
 import os
@@ -30,33 +30,67 @@ TOPIC_REDDIT = "stock_reddit"
 # Alpha Vantage API Configuration
 STOCK_API_URL = "https://www.alphavantage.co/query"
 
-# Initialize Kafka Producer
+# Kafka Producer (Singleton)
+producer = None
+
 def create_kafka_producer():
-    retries = 5
+    """Create Kafka producer with retries."""
+    global producer
     delay = 5
-    for attempt in range(retries):
+    for _ in range(5):  # Try up to 5 times before failing
         try:
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BROKER,
-                value_serializer=lambda v: json.dumps(v).encode("utf-8")
+                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                request_timeout_ms=10000,  # 10s timeout
+                retries=5  # Kafka's internal retry
             )
             print("✅ Connected to Kafka successfully")
             return producer
         except NoBrokersAvailable:
-            print(f"⚠️ Kafka broker not available. Retrying ({attempt+1}/{retries}) in {delay} seconds...")
+            print(f"⚠️ Kafka broker not available. Retrying in {delay} seconds...")
             time.sleep(delay)
-    raise Exception("❌ Failed to connect to Kafka after multiple retries.")
+            delay = min(delay * 2, 60)  # Exponential backoff
+    print("❌ Could not connect to Kafka after multiple attempts.")
+    return None
 
-producer = create_kafka_producer()
+def get_kafka_producer():
+    """Ensure Kafka producer is initialized and connected."""
+    global producer
+    if producer is None:
+        producer = create_kafka_producer()
+    return producer
 
 # Initialize Reddit API
-reddit = praw.Reddit(
-    client_id=REDDIT_CLIENT_ID,
-    client_secret=REDDIT_CLIENT_SECRET,
-    user_agent=REDDIT_USER_AGENT
-)
+try:
+    reddit = praw.Reddit(
+        client_id=REDDIT_CLIENT_ID,
+        client_secret=REDDIT_CLIENT_SECRET,
+        user_agent=REDDIT_USER_AGENT
+    )
+    print("✅ Reddit API initialized")
+except Exception as e:
+    print(f"❌ Error initializing Reddit API: {e}")
+    reddit = None
 
-# Fetch stock price data (Dynamic symbol)
+# Function to send messages to Kafka with retries
+def send_to_kafka(topic, message):
+    """Send message to Kafka with retry logic."""
+    producer = get_kafka_producer()
+    if not producer:
+        return {"error": "❌ Kafka producer is unavailable"}
+
+    for attempt in range(3):  # Retry sending 3 times
+        try:
+            producer.send(topic, message)
+            producer.flush()
+            return {"message": f"✅ Data sent to Kafka topic {topic}"}
+        except KafkaError as e:
+            print(f"⚠️ Kafka send failed (attempt {attempt+1}/3): {e}")
+            time.sleep(2 ** attempt)  # Exponential backoff
+    return {"error": "❌ Failed to send data to Kafka after multiple attempts"}
+
+# Fetch stock price data
 @app.get("/fetch_stock_data")
 def fetch_stock_data(symbol: str = Query("IBM", min_length=1, description="Stock symbol to fetch data for")):
     try:
@@ -82,10 +116,7 @@ def fetch_stock_data(symbol: str = Query("IBM", min_length=1, description="Stock
             "volume": int(data["Time Series (Daily)"][latest_date]["5. volume"]),
         }
 
-        producer.send(TOPIC_STOCKS, stock_info)
-        producer.flush()
-
-        return {"message": f"✅ Stock data for {symbol} sent to Kafka", "data": stock_info}
+        return send_to_kafka(TOPIC_STOCKS, stock_info)
 
     except requests.exceptions.RequestException as e:
         return {"error": f"❌ Failed to fetch data from Alpha Vantage: {str(e)}"}
@@ -112,9 +143,10 @@ def fetch_stock_news():
                 "url": article["url"]
             }
             news_list.append(news_item)
-            producer.send(TOPIC_NEWS, news_item)
 
-        producer.flush()
+        for news in news_list:
+            send_to_kafka(TOPIC_NEWS, news)
+
         return {"message": "✅ Stock news sent to Kafka", "news": news_list}
 
     except requests.exceptions.RequestException as e:
@@ -122,10 +154,13 @@ def fetch_stock_news():
     except Exception as e:
         return {"error": f"❌ Unexpected error: {str(e)}"}
 
-# Fetch top Reddit posts from r/stocks & r/wallstreetbets
+# Fetch top Reddit posts
 @app.get("/fetch_reddit_posts")
 def fetch_reddit_posts():
     try:
+        if reddit is None:
+            return {"error": "❌ Reddit API not initialized"}
+
         subreddits = ["stocks", "wallstreetbets"]
         reddit_posts = []
 
@@ -140,13 +175,14 @@ def fetch_reddit_posts():
                     "created_utc": post.created_utc
                 }
                 reddit_posts.append(post_info)
-                producer.send(TOPIC_REDDIT, post_info)
 
-        producer.flush()
-        return {"message": "✅ Reddit posts sent to Kafka", "posts": reddit_posts}
+        for post in reddit_posts:
+            send_to_kafka(TOPIC_REDDIT, post)
+
+        return {"message": "Reddit posts sent to Kafka", "posts": reddit_posts}
 
     except Exception as e:
-        return {"error": f"❌ Unexpected error while fetching Reddit posts: {str(e)}"}
+        return {"error": f"Unexpected error while fetching Reddit posts: {str(e)}"}
 
 # Health check endpoint
 @app.get("/")

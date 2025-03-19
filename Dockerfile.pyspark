@@ -1,0 +1,23 @@
+# Use the official Spark image with Hadoop
+FROM bitnami/spark:3.4.0
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Install system dependencies and Python packages
+RUN apt-get update && apt-get install -y python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# Check if kafka-python is installed
+RUN pip3 show kafka-python || echo "Kafka-Python NOT installed!"
+
+# Set Python environment for PySpark
+ENV PYSPARK_PYTHON=/usr/bin/python3
+
+# Copy application files
+COPY . .
+
+# Run PySpark script
+CMD ["spark-submit", "--master", "local[*]", "pyspark_script.py"]

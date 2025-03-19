@@ -1,9 +1,26 @@
+# Web Framework & Server
 fastapi
 uvicorn
+
+# Streaming & Messaging
 kafka-python
+
+# Big Data & Processing
 pyspark
-google-cloud-bigquery
+
+# Cloud & Storage
+google-cloud-firestore
+
+# Machine Learning & NLP
 transformers
+torch
+
+# API & Web Scraping
 requests
-praw  # Reddit API wrapper
-python-dotenv  # For managing API keys via .env file
+praw
+
+# Environment Variables & Database
+python-dotenv
+psycopg2-binary
+sqlalchemy  # Added for PostgreSQL ORM support (optional)
+pandas

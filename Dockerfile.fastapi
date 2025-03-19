@@ -1,0 +1,37 @@
+# Use a minimal, optimized Python image
+FROM python:3.10-slim
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy only the requirements file first for better Docker caching
+COPY requirements.txt .
+
+# Install system dependencies (needed for psycopg2 & other packages)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy only necessary application files (avoid copying unnecessary files)
+COPY . .
+
+# Ensure the .env file is included (if not ignored in .dockerignore)
+COPY .env .env
+
+# Set environment variables to run FastAPI in production mode
+ENV UVICORN_CMD="uvicorn main:app --host 0.0.0.0 --port 8000"
+
+# Expose FastAPI’s default port
+EXPOSE 8000
+
+# Use a non-root user for better security
+RUN useradd --create-home appuser
+USER appuser
+
+# Run FastAPI with Uvicorn (without --reload in production)
+CMD ["sh", "-c", "$UVICORN_CMD"]
