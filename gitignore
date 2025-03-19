@@ -24,3 +24,6 @@ pip-log.txt
 # Kafka & Zookeeper Data
 kafka_data/
 zookeeper_data/
+
+# Firestore service account key
+firestore-key.json
